@@ -15,6 +15,7 @@ impl TemporalScope {
     pub const ONE_WEEK: &'static str = "1wk";
     pub const ONE_MONTH: &'static str = "1mo";
     pub const THREE_MONTHS: &'static str = "3mo";
+    pub const SIX_MONTHS: &'static str = "6mo";
     pub const ONE_YEAR: &'static str = "1y";
     pub const YEAR_TO_DATE: &'static str = "ytd";
     pub const TEN_YEAR: &'static str = "10y";
@@ -31,9 +32,11 @@ pub struct OhlcData {
     pub volume: u64,
 }
 
+#[allow(dead_code)]
 pub trait OhlcVecExt {
     fn print_summary(&self);
     fn filter_last_days(&self, count: usize) -> Vec<OhlcData>;
+    fn calculate_basic_stats(&self) -> Option<BasicStats>;
 }
 impl OhlcVecExt for Vec<OhlcData> {
     fn print_summary(&self) {
@@ -66,6 +69,31 @@ impl OhlcVecExt for Vec<OhlcData> {
 
     }
 
+    /// Calcule les statistiques de base pour les données OHLC
+    fn calculate_basic_stats(&self) -> Option<BasicStats> {
+        if self.is_empty() {
+            return None;
+        }
+
+        let prices: Vec<f64> = self.iter().map(|d| d.close).collect();
+        let min_price = prices.iter().fold(f64::INFINITY, |a, &b| a.min(b));
+        let max_price = prices.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
+        let avg_price = prices.iter().sum::<f64>() / prices.len() as f64;
+        
+        let total_volume: u64 = self.iter().map(|d| d.volume).sum();
+        let avg_volume = total_volume / self.len() as u64;
+
+        Some(BasicStats {
+            min_price,
+            max_price,
+            avg_price,
+            total_volume,
+            avg_volume,
+            data_points: self.len(),
+        })
+    }
+
+
 }
 /// Récupère les données OHLC d'une action pour une période donnée
 pub async fn get_ohlc_data(
@@ -93,6 +121,7 @@ pub async fn get_ohlc_data(
 }
 
 /// Récupère les données OHLC avec des dates personnalisées
+#[allow(dead_code)]
 pub async fn get_ohlc_data_range(
     symbol: &str,
     start: DateTime<Utc>,
@@ -123,7 +152,8 @@ pub async fn get_ohlc_data_range(
 }
 
 /// Récupère la dernière cotation disponible
-pub async fn get_latest_quote(symbol: &str) -> Result<OhlcData, Box<dyn Error>> {
+#[allow(dead_code)]
+pub async fn get_actual_ohlc(symbol: &str) -> Result<OhlcData, Box<dyn Error>> {
     let provider = yahoo::YahooConnector::new()?;
     let response = provider.get_latest_quotes(symbol, "1d").await?;
     let quote = response.last_quote()?;
@@ -139,6 +169,7 @@ pub async fn get_latest_quote(symbol: &str) -> Result<OhlcData, Box<dyn Error>> 
 }
 
 /// Recherche un ticker par nom de société
+#[allow(dead_code)]
 pub async fn search_ticker(query: &str) -> Result<Vec<String>, Box<dyn Error>> {
     let provider = yahoo::YahooConnector::new()?;
     let response = provider.search_ticker(query).await?;
@@ -151,31 +182,8 @@ pub async fn search_ticker(query: &str) -> Result<Vec<String>, Box<dyn Error>> {
     Ok(symbols)
 }
 
-/// Calcule les statistiques de base pour les données OHLC
-pub fn calculate_basic_stats(data: &[OhlcData]) -> Option<BasicStats> {
-    if data.is_empty() {
-        return None;
-    }
-
-    let prices: Vec<f64> = data.iter().map(|d| d.close).collect();
-    let min_price = prices.iter().fold(f64::INFINITY, |a, &b| a.min(b));
-    let max_price = prices.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
-    let avg_price = prices.iter().sum::<f64>() / prices.len() as f64;
-    
-    let total_volume: u64 = data.iter().map(|d| d.volume).sum();
-    let avg_volume = total_volume / data.len() as u64;
-
-    Some(BasicStats {
-        min_price,
-        max_price,
-        avg_price,
-        total_volume,
-        avg_volume,
-        data_points: data.len(),
-    })
-}
-
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct BasicStats {
     pub min_price: f64,
     pub max_price: f64,
@@ -185,6 +193,7 @@ pub struct BasicStats {
     pub data_points: usize,
 }
 
+#[allow(dead_code)]
 impl BasicStats {
     pub fn print_stats(&self) {
         println!("\n📊 Statistiques de base:");
@@ -195,97 +204,4 @@ impl BasicStats {
         println!("  Volume moyen: {}", self.avg_volume);
         println!("  Nombre de points de données: {}", self.data_points);
     }
-}
-
-/// Lance l'analyse technique pour un symbole donné
-pub async fn run_technical_analysis(symbol: &str, interval: &str, range: &str) -> Result<(), Box<dyn Error>> {
-    println!("🔍 Analyse technique pour: {}", symbol);
-    println!("{}", "=".repeat(50));
-    
-    // Récupérer les données du dernier mois avec intervalle journalier
-    let data = get_ohlc_data(symbol, interval, range).await?;
-    
-    if data.is_empty() {
-        println!("❌ Aucune donnée trouvée pour {}", symbol);
-        return Ok(());
-    }
-
-    // Afficher les 30 derniers jours
-    let last_30_days = data.filter_last_days(30);
-    println!("\n📈 Données OHLC pour {} (derniers {} éléments):", symbol, last_30_days.len());
-    let _ =&last_30_days.print_summary();
-    
-    // Récupérer la dernière cotation
-    match get_latest_quote(symbol).await {
-        Ok(latest) => {
-            println!("\n💰 Dernière cotation en temps réel:");
-            println!("  Prix: {:.2}", latest.close);
-            println!("  Ouverture: {:.2}", latest.open);
-            println!("  Plus haut: {:.2}", latest.high);
-            println!("  Plus bas: {:.2}", latest.low);
-            println!("  Volume: {}", latest.volume);
-        }
-        Err(e) => {
-            println!("\n⚠️ Impossible de récupérer la dernière cotation: {}", e);
-        }
-    }
-    
-    // Calculs de variation
-    if last_30_days.len() >= 2 {
-        let latest_close = last_30_days.last().unwrap().close;
-        let previous_close = last_30_days[last_30_days.len() - 2].close;
-        let change = latest_close - previous_close;
-        let change_percent = (change / previous_close) * 100.0;
-        
-        let trend_emoji = if change > 0.0 { "📈" } else if change < 0.0 { "📉" } else { "➡️" };
-        println!("{} Variation journalière: {:.2} ({:.2}%)", trend_emoji, change, change_percent);
-    }
-
-    // Statistiques de base
-    if let Some(stats) = calculate_basic_stats(&last_30_days) {
-        stats.print_stats();
-    }
-
-    // Analyse d'une période spécifique (juillet 2024)
-    let start_date = DateTime::parse_from_rfc3339("2024-07-01T00:00:00Z")?.with_timezone(&Utc);
-    let end_date = DateTime::parse_from_rfc3339("2024-07-31T23:59:59Z")?.with_timezone(&Utc);
-    
-    match get_ohlc_data_range(symbol, start_date, end_date).await {
-        Ok(july_data) => {
-            if !july_data.is_empty() {
-                println!("\n\n📅 Données OHLC pour {} (Juillet 2024):", symbol);
-                let _ =&july_data.print_summary();
-                
-                if let Some(july_stats) = calculate_basic_stats(&july_data) {
-                    july_stats.print_stats();
-                }
-            } else {
-                println!("\n\n⚠️  Aucune donnée trouvée pour {} en juillet 2024", symbol);
-            }
-        }
-        Err(e) => {
-            println!("\n⚠️  Impossible de récupérer les données de juillet 2024: {}", e);
-        }
-    }
-
-    // Recherche de tickers similaires
-    match search_ticker(symbol).await {
-        Ok(tickers) => {
-            if !tickers.is_empty() {
-                println!("\n🔍 Tickers trouvés pour '{}':", symbol);
-                for (i, ticker) in tickers.iter().take(5).enumerate() {
-                    println!("  {}. {}", i + 1, ticker);
-                }
-                if tickers.len() > 5 {
-                    println!("  ... et {} autres", tickers.len() - 5);
-                }
-            }
-        }
-        Err(e) => {
-            println!("\n⚠️  Impossible de rechercher des tickers similaires: {}", e);
-        }
-    }
-
-    println!("\n✅ Analyse terminée pour {}", symbol);
-    Ok(())
 }
