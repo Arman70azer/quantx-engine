@@ -21,7 +21,6 @@ impl TemporalScope {
     pub const TEN_YEAR: &'static str = "10y";
 }
 
-
 #[derive(Debug, Clone)]
 pub struct OhlcData {
     pub timestamp: i64,
@@ -32,24 +31,35 @@ pub struct OhlcData {
     pub volume: u64,
 }
 
-#[allow(dead_code)]
-pub struct  OhlcDataExt {
-    pub ohlc_data: Vec<OhlcData>,
+impl OhlcData {
+    /// Récupère la date formatée pour l'affichage
+    pub fn formatted_date(&self) -> String {
+        let dt = DateTime::<Utc>::from_timestamp(self.timestamp, 0)
+            .unwrap_or_default();
+        dt.format("%Y-%m-%d").to_string()
+    }
+}
+
+#[derive(Debug)]
+pub struct OhlcDataExt {
+    pub data: Vec<OhlcData>,
+    pub symbol: String,
 }
 
 #[allow(dead_code)]
-impl OhlcDataExt  {
-    /// Récupère les données OHLC d'une action pour une période donnée
-    pub async fn get_ohlc_data(
-        symbol: &str,
-        interval: &str,  // "1d", "1h", "1wk", etc.
-        range: &str,     // "1d", "1mo", "3mo", "1y", "ytd", "max", etc.
-    ) -> Result<OhlcDataExt, Box<dyn Error>> {
+impl OhlcDataExt {
+    /// Constructeur principal - récupère les données OHLC
+    pub async fn fetch(
+        symbol: impl Into<String>,
+        interval: &str,
+        range: &str,
+    ) -> Result<Self, Box<dyn Error>> {
+        let symbol = symbol.into();
         let provider = yahoo::YahooConnector::new()?;
-        let response = provider.get_quote_range(symbol, interval, range).await?;
+        let response = provider.get_quote_range(&symbol, interval, range).await?;
         let quotes = response.quotes()?;
         
-        let ohlc_data: Vec<OhlcData> = quotes
+        let data = quotes
             .into_iter()
             .map(|quote| OhlcData {
                 timestamp: quote.timestamp,
@@ -61,107 +71,149 @@ impl OhlcDataExt  {
             })
             .collect();
 
-        Ok(OhlcDataExt { ohlc_data: ohlc_data })
+        Ok(Self { data, symbol })
     }
 
+    /// Constructeur avec dates personnalisées
+    
+    pub async fn fetch_range(
+        symbol: impl Into<String>,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> Result<Self, Box<dyn Error>> {
+        let symbol = symbol.into();
+        let provider = yahoo::YahooConnector::new()?;
+        
+        let start_offset = yahoo::time::OffsetDateTime::from_unix_timestamp(start.timestamp())?;
+        let end_offset = yahoo::time::OffsetDateTime::from_unix_timestamp(end.timestamp())?;
+        
+        let response = provider.get_quote_history(&symbol, start_offset, end_offset).await?;
+        let quotes = response.quotes()?;
+        
+        let data = quotes
+            .into_iter()
+            .map(|quote| OhlcData {
+                timestamp: quote.timestamp,
+                open: quote.open,
+                high: quote.high,
+                low: quote.low,
+                close: quote.close,
+                volume: quote.volume,
+            })
+            .collect();
+
+        Ok(Self { data, symbol })
+    }
+
+    /// Vérifie si les données sont vides
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
+    }
+
+    /// Nombre de points de données
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
+
+    /// Récupère la première valeur
+    pub fn first(&self) -> Option<&OhlcData> {
+        self.data.first()
+    }
+
+    /// Récupère la dernière valeur
+    pub fn last(&self) -> Option<&OhlcData> {
+        self.data.last()
+    }
+
+    /// Affiche un résumé des données
     pub fn print_summary(&self) {
-        if self.ohlc_data.is_empty() {
-            println!("No OHLC data available.");
+        if self.is_empty() {
+            println!("❌ Aucune donnée OHLC disponible pour {}.", self.symbol);
             return;
         }
-        let first = &self.ohlc_data[0];
-        let last = &self.ohlc_data[self.ohlc_data.len() - 1];
-        println!("OHLC Summary:");
-        println!("  Start: {} - Open: {:.2}, High: {:.2}, Low: {:.2}, Close: {:.2}, Volume: {}",
-                 first.timestamp, first.open, first.high, first.low, first.close, first.volume);
-        println!("  End: {} - Open: {:.2}, High: {:.2}, Low: {:.2}, Close: {:.2}, Volume: {}",
-                 last.timestamp, last.open, last.high, last.low, last.close, last.volume);
+
+        let first = self.first().unwrap();
+        let last = self.last().unwrap();
+        
+        println!("\n📈 Résumé OHLC pour {} ({} points):", self.symbol, self.len());
+        println!("  🗓️  Début ({}): O:{:.2} H:{:.2} L:{:.2} C:{:.2} V:{}", 
+                 first.formatted_date(), first.open, first.high, first.low, first.close, first.volume);
+        println!("  🗓️  Fin   ({}): O:{:.2} H:{:.2} L:{:.2} C:{:.2} V:{}", 
+                 last.formatted_date(), last.open, last.high, last.low, last.close, last.volume);
     }
 
-    /// Filtre les données OHLC pour ne garder que les N derniers éléments
-    pub fn filter_last_days(&self, count: usize) -> Vec<OhlcData> {
-        if self.ohlc_data.len() <= count {
-            return self.ohlc_data.clone();
+    /// Filtre les N derniers éléments
+    pub fn last_n(&self, count: usize) -> Vec<&OhlcData> {
+        if count >= self.len() {
+            return self.data.iter().collect();
         }
         
-        self.ohlc_data.clone().into_iter()
-        .rev()
-        .take(count)
-        .collect::<Vec<_>>()  // Here the iterator yields &OhlcData but you want OhlcData
-        .into_iter()
-        .rev()
-        .collect()
-
+        self.data.iter().rev().take(count).rev().collect()
     }
 
-    /// Calcule les statistiques de base pour les données OHLC
-    pub fn calculate_basic_stats(&self) -> Option<BasicStats> {
-        if self.ohlc_data.is_empty() {
+    /// Calcule et affiche les statistiques de base
+    pub fn analyze(&self) -> Option<BasicStats> {
+        if self.is_empty() {
+            println!("❌ Impossible de calculer les statistiques: aucune donnée disponible.");
             return None;
         }
 
-        let prices: Vec<f64> = self.ohlc_data.iter().map(|d| d.close).collect();
+        let prices: Vec<f64> = self.data.iter().map(|d| d.close).collect();
         let min_price = prices.iter().fold(f64::INFINITY, |a, &b| a.min(b));
         let max_price = prices.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
         let avg_price = prices.iter().sum::<f64>() / prices.len() as f64;
         
-        let total_volume: u64 = self.ohlc_data.iter().map(|d| d.volume).sum();
-        let avg_volume = total_volume / self.ohlc_data.len() as u64;
+        let total_volume: u64 = self.data.iter().map(|d| d.volume).sum();
+        let avg_volume = total_volume / self.len() as u64;
 
-        Some(BasicStats {
+        let stats = BasicStats {
+            symbol: self.symbol.clone(),
             min_price,
             max_price,
             avg_price,
             total_volume,
             avg_volume,
-            data_points: self.ohlc_data.len(),
-        })
+            data_points: self.len(),
+        };
+
+        stats.print();
+        Some(stats)
     }
 
-    /// Récupère les données OHLC avec des dates personnalisées
-    pub async fn get_ohlc_data_range(
-        symbol: &str,
-        start: DateTime<Utc>,
-        end: DateTime<Utc>,
-    ) -> Result<OhlcDataExt, Box<dyn Error>> {
-        let provider = yahoo::YahooConnector::new()?;
-        
-        // Convertir DateTime<Utc> en OffsetDateTime pour l'API
-        let start_offset = yahoo::time::OffsetDateTime::from_unix_timestamp(start.timestamp())?;
-        let end_offset = yahoo::time::OffsetDateTime::from_unix_timestamp(end.timestamp())?;
-        
-        let response = provider.get_quote_history(symbol, start_offset, end_offset).await?;
-        let quotes = response.quotes()?;
-        
-        let ohlc_data: Vec<OhlcData> = quotes
-            .into_iter()
-            .map(|quote| OhlcData {
-                timestamp: quote.timestamp,
-                open: quote.open,
-                high: quote.high,
-                low: quote.low,
-                close: quote.close,
-                volume: quote.volume,
-            })
-            .collect();
-
-        Ok(OhlcDataExt { ohlc_data })
-    }
-
-    /// Récupère la dernière cotation disponible
-    #[allow(dead_code)]
-    pub async fn get_actual_ohlc(&self) -> Result<OhlcData, Box<dyn Error>> {
-        if self.ohlc_data.is_empty() {
-            return Err("No OHLC data available".into());
+    /// Calcule le rendement total sur la période
+    pub fn total_return(&self) -> Option<f64> {
+        if self.len() < 2 {
+            return None;
         }
         
-        // Retourne le dernier élément de la liste
-        Ok(self.ohlc_data.last().cloned().unwrap())
+        let first_price = self.first()?.close;
+        let last_price = self.last()?.close;
+        
+        Some((last_price - first_price) / first_price * 100.0)
     }
 
-
+    /// Affiche un rapport complet
+    pub fn report(&self) {
+        self.print_summary();
+        
+        if let Some(_stats) = self.analyze() {
+            if let Some(return_pct) = self.total_return() {
+                let trend = if return_pct > 0.0 { "📈" } else { "📉" };
+                println!("  💰 Rendement total: {}{:.2}%", trend, return_pct);
+            }
+        }
+    }
 }
 
+/// Implémentation Iterator pour OhlcDataExt
+impl IntoIterator for OhlcDataExt {
+    type Item = OhlcData;
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.data.into_iter()
+    }
+}
 
 /// Recherche un ticker par nom de société
 #[allow(dead_code)]
@@ -169,17 +221,12 @@ pub async fn search_ticker(query: &str) -> Result<Vec<String>, Box<dyn Error>> {
     let provider = yahoo::YahooConnector::new()?;
     let response = provider.search_ticker(query).await?;
     
-    let symbols: Vec<String> = response.quotes
-        .into_iter()
-        .map(|quote| quote.symbol)
-        .collect();
-    
-    Ok(symbols)
+    Ok(response.quotes.into_iter().map(|quote| quote.symbol).collect())
 }
 
-#[derive(Debug)]
-#[allow(dead_code)]
+#[derive(Debug, Clone)]
 pub struct BasicStats {
+    pub symbol: String,
     pub min_price: f64,
     pub max_price: f64,
     pub avg_price: f64,
@@ -188,15 +235,13 @@ pub struct BasicStats {
     pub data_points: usize,
 }
 
-#[allow(dead_code)]
 impl BasicStats {
-    pub fn print_stats(&self) {
-        println!("\n📊 Statistiques de base:");
-        println!("  Prix minimum: {:.2}", self.min_price);
-        println!("  Prix maximum: {:.2}", self.max_price);
-        println!("  Prix moyen: {:.2}", self.avg_price);
-        println!("  Volume total: {}", self.total_volume);
-        println!("  Volume moyen: {}", self.avg_volume);
-        println!("  Nombre de points de données: {}", self.data_points);
+    pub fn print(&self) {
+        println!("\n📊 Statistiques pour {}:", self.symbol);
+        println!("  💵 Prix: min={:.2} | max={:.2} | moyenne={:.2}", 
+                 self.min_price, self.max_price, self.avg_price);
+        println!("  📦 Volume: total={} | moyenne={}", 
+                 self.total_volume, self.avg_volume);
+        println!("  📈 Points de données: {}", self.data_points);
     }
 }

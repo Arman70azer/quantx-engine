@@ -4,16 +4,17 @@ use crate::modules::technical::indicators::{TemporalScope, OhlcDataExt};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Analyser une action
-    let symbol = "AAPL";
-    let interval = TemporalScope::ONE_DAY;
-    let range = TemporalScope::SIX_MONTHS;
-    let ohlc_data = OhlcDataExt::get_ohlc_data(symbol, interval, range).await?;
-    ohlc_data.print_summary();
-    ohlc_data.calculate_basic_stats()
-        .map(|stats| stats.print_stats())
-        .unwrap_or_else(|| println!("Aucune donnée OHLC disponible pour l'action {}", symbol));
+    // Version simplifiée et plus lisible
+    let ohlc = OhlcDataExt::fetch("AAPL", TemporalScope::ONE_DAY, TemporalScope::SIX_MONTHS).await?;
     
+    // Rapport complet en une seule méthode
+    ohlc.report();
+    
+    // Exemple d'utilisation des nouvelles méthodes
+    println!("\n🔍 Analyse des 5 derniers jours:");
+    for data in ohlc.last_n(5) {
+        println!("  {} - Close: {:.2}", data.formatted_date(), data.close);
+    }
     
     Ok(())
 }
