@@ -8,9 +8,6 @@ Le projet vise à fournir une base performante et extensible pour explorer, scor
 
 ## 🔧 Modules principaux
 
-### 🛰️ `data_fetcher`
-Module responsable de la **collecte des données brutes** (prix, fondamentaux, actualités...) via des **APIs financières externes**.
-
 ### 🧩 `technical`
 Analyse technique via des indicateurs comme **RSI**, **MACD**, **Moyennes mobiles**, etc.
 
@@ -29,11 +26,11 @@ Analyse de l’activité des **initiés** (achats/ventes des dirigeants déclar�
 ### 📆 `calendar`
 Récupère les événements importants : **résultats financiers à venir**, **dividendes**, **OPA**, etc.
 
-### 📡 `data`
-Module de récupération des données depuis des **APIs externes** (prix, fondamentaux, news, etc.).
-
 ### 📈 `scoring`
 Fusionne les résultats des modules et génère un **score global** d’évaluation (Buy / Hold / Sell).
+
+### 💃 `luxure Index`
+Analyse les tendances du marché pour les activités de luxe et des strip club pour déterminer si il y a un penchant pour la luxure = forte consomation de produits hors marché de première nécessiter
 
 ---
 
