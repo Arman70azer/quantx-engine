@@ -1,6 +1,8 @@
 mod modules;
+mod utils;
 
-use crate::modules::technical::indicators::{TemporalScope, OhlcDataExt};
+use crate::modules::technical::indicators::OhlcDataExt;
+use crate::utils::TemporalScope;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
